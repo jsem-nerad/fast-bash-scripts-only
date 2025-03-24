@@ -1,0 +1,176 @@
+#!/bin/bash
+
+# Universal Docker Installation Script
+# This script detects the Linux distribution and installs Docker accordingly
+
+echo "Universal Docker Installation Script"
+echo "====================================="
+
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to detect OS
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        OS=$NAME
+        VER=$VERSION_ID
+    elif command_exists lsb_release; then
+        OS=$(lsb_release -si)
+        VER=$(lsb_release -sr)
+    elif [ -f /etc/lsb-release ]; then
+        . /etc/lsb-release
+        OS=$DISTRIB_ID
+        VER=$DISTRIB_RELEASE
+    else
+        echo "Cannot detect OS. Exiting."
+        exit 1
+    fi
+    
+    echo "Detected OS: $OS $VER"
+}
+
+# Function to install Docker on Debian/Ubuntu based systems
+install_debian_ubuntu() {
+    echo "Installing Docker on Debian/Ubuntu..."
+    
+    # Update package index
+    sudo apt-get update
+    
+    # Install dependencies
+    sudo apt-get install -y ca-certificates curl gnupg
+    
+    # Add Docker's official GPG key
+    sudo install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/$ID/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    sudo chmod a+r /etc/apt/keyrings/docker.gpg
+    
+    # Add Docker repository
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/$ID $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+    sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Update package index again
+    sudo apt-get update
+    
+    # Install Docker
+    sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+# Function to install Docker on RHEL/CentOS/Fedora
+install_rhel_centos_fedora() {
+    echo "Installing Docker on RHEL/CentOS/Fedora..."
+    
+    # Install required packages
+    sudo dnf -y install dnf-plugins-core
+    
+    # Add Docker repository
+    sudo dnf config-manager --add-repo https://download.docker.com/linux/$ID/docker-ce.repo
+    
+    # Install Docker
+    sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+# Function to install Docker on Arch Linux
+install_arch() {
+    echo "Installing Docker on Arch Linux..."
+    
+    # Update package database
+    sudo pacman -Syu
+    
+    # Install Docker
+    sudo pacman -S docker
+}
+
+# Function to install Docker on SUSE
+install_suse() {
+    echo "Installing Docker on SUSE Linux..."
+    
+    # Install Docker
+    sudo zypper install -y docker
+}
+
+# Function to install Docker on Alpine
+install_alpine() {
+    echo "Installing Docker on Alpine Linux..."
+    
+    # Update package index
+    sudo apk update
+    
+    # Install Docker
+    sudo apk add docker
+}
+
+# Main installation function
+install_docker() {
+    detect_os
+    
+    # Check if Docker is already installed
+    if command_exists docker; then
+        echo "Docker is already installed. Current version:"
+        docker --version
+        echo "Do you want to reinstall Docker? (y/n)"
+        read -r answer
+        if [ "$answer" != "y" ]; then
+            echo "Installation aborted."
+            exit 0
+        fi
+    fi
+    
+    # Install Docker based on OS
+    case "$OS" in
+        *Ubuntu*|*Debian*|*Mint*)
+            install_debian_ubuntu
+            ;;
+        *Fedora*|*CentOS*|*Red\ Hat*|*RHEL*)
+            install_rhel_centos_fedora
+            ;;
+        *Arch*)
+            install_arch
+            ;;
+        *SUSE*|*SLE*)
+            install_suse
+            ;;
+        *Alpine*)
+            install_alpine
+            ;;
+        *)
+            echo "Unsupported OS: $OS"
+            echo "Please install Docker manually following the official documentation:"
+            echo "https://docs.docker.com/engine/install/"
+            exit 1
+            ;;
+    esac
+    
+    # Start and enable Docker service
+    if command_exists systemctl; then
+        sudo systemctl start docker
+        sudo systemctl enable docker
+        echo "Docker service started and enabled to run at boot."
+    elif command_exists service; then
+        sudo service docker start
+        echo "Docker service started."
+    fi
+    
+    # Add current user to docker group to run Docker without sudo
+    if [ -z "$DOCKER_HOST" ]; then
+        sudo usermod -aG docker "$USER"
+        echo "Added user $USER to the docker group. You may need to log out and back in for this to take effect."
+    fi
+    
+    # Verify installation
+    echo "Verifying Docker installation..."
+    if command_exists docker; then
+        echo "Docker installed successfully!"
+        docker --version
+        echo "Running hello-world container to verify installation..."
+        sudo docker run hello-world
+    else
+        echo "Docker installation failed. Please check the error messages above."
+        exit 1
+    fi
+}
+
+# Execute the installation
+install_docker

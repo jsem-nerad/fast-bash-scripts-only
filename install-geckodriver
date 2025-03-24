@@ -1,0 +1,72 @@
+#!/bin/bash
+
+echo "Installing the latest geckodriver..."
+
+ARCH=$(uname -m)
+case $ARCH in
+  x86_64)
+    ARCH_NAME="linux64"
+    ;;
+  aarch64|arm64)
+    ARCH_NAME="linux-aarch64"
+    ;;
+  *)
+    echo "Unsupported architecture: $ARCH"
+    exit 1
+    ;;
+esac
+
+echo "Fetching latest geckodriver release information..."
+LATEST_RELEASE=$(curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest)
+
+VERSION=$(echo "$LATEST_RELEASE" | sed -n 's/.*"tag_name": "\(.*\)".*/\1/p' | sed 's/^v//')
+
+if [ -z "$VERSION" ]; then
+  VERSION=$(echo "$LATEST_RELEASE" | grep -o '"tag_name": "[^"]*' | cut -d'"' -f4 | sed 's/^v//')
+
+  if [ -z "$VERSION" ]; then
+    echo "Failed to determine the latest version. Please check your internet connection."
+    exit 1
+  fi
+fi
+
+echo "Latest geckodriver version: $VERSION"
+
+DOWNLOAD_URL="https://github.com/mozilla/geckodriver/releases/download/v$VERSION/geckodriver-v$VERSION-$ARCH_NAME.tar.gz"
+TEMP_DIR=$(mktemp -d)
+TARBALL="$TEMP_DIR/geckodriver.tar.gz"
+
+echo "Downloading geckodriver from: $DOWNLOAD_URL"
+if ! curl -L -o "$TARBALL" "$DOWNLOAD_URL"; then
+  echo "Failed to download geckodriver."
+  rm -rf "$TEMP_DIR"
+  exit 1
+fi
+
+echo "Extracting geckodriver..."
+if ! tar -xzf "$TARBALL" -C "$TEMP_DIR"; then
+  echo "Failed to extract geckodriver."
+  rm -rf "$TEMP_DIR"
+  exit 1
+fi
+
+echo "Installing geckodriver to /usr/local/bin..."
+if [ -f /usr/local/bin/geckodriver ]; then
+  echo "Removing existing geckodriver..."
+  sudo rm /usr/local/bin/geckodriver
+fi
+
+sudo mv "$TEMP_DIR/geckodriver" /usr/local/bin/
+sudo chmod +x /usr/local/bin/geckodriver
+
+rm -rf "$TEMP_DIR"
+
+echo "Verifying installation..."
+if geckodriver --version; then
+  echo "Geckodriver v$VERSION has been successfully installed to /usr/local/bin/geckodriver"
+else
+  echo "Installation verification failed. Please check if /usr/local/bin is in your PATH."
+  exit 1
+fi
+
+echo "Installation complete!"
