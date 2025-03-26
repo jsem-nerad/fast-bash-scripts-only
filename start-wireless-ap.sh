@@ -1,5 +1,5 @@
 #!/bin/bash
-
+#
 # Universal Wireless Access Point Setup Script
 
 # Colors for better readability
