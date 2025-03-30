@@ -301,6 +301,6 @@ main() {
   echo ""
   echo "To stop the access point, run: sudo systemctl stop hostapd dnsmasq"
   echo "To start it again, run: sudo systemctl start hostapd dnsmasq"
-
+}
 # Run the main function
 main
