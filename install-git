@@ -135,6 +135,14 @@ configure_git() {
         git config --global core.editor "$editor" || handle_error "Failed to set editor"
     fi
     
+    # Configure GitHub to always use SSH instead of HTTPS
+    read -p "Would you like to configure Git to always use SSH for GitHub repositories? (y/n): " use_ssh
+    if [[ "$use_ssh" == "y" ]]; then
+        git config --global url."git@github.com:".insteadOf "https://github.com/" || handle_error "Failed to set GitHub URL configuration"
+        echo "Git is now configured to automatically use SSH URLs for GitHub repositories."
+        echo "This means that when you clone with HTTPS URLs, Git will internally convert them to SSH format."
+    fi
+    
     # Configure credential helper for easier authentication
     if [[ "$(detect_os)" == "windows" ]]; then
         git config --global credential.helper wincred || echo "Warning: Failed to set credential helper"
@@ -150,9 +158,14 @@ configure_git() {
     echo "Name: $user_name"
     echo "Email: $user_email"
     
+    # Display the URL rewrite configuration if enabled
+    if [[ "$use_ssh" == "y" ]]; then
+        echo "GitHub URL rewrite: HTTPS → SSH (enabled)"
+    fi
+    
     # Verify configuration
     echo -e "\nVerifying Git configuration..."
-    git config --list | grep user
+    git config --list | grep -E 'user|url'
 }
 # Function to set up SSH key for GitHub
 setup_ssh() {
