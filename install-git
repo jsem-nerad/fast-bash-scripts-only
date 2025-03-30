@@ -1,0 +1,263 @@
+#!/bin/bash
+
+# Function to detect the operating system
+detect_os() {
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        echo "linux"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "macos"
+    elif [[ "$OSTYPE" == "cygwin" ]] || [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "win32" ]]; then
+        echo "windows"
+    else
+        echo "unknown"
+    fi
+}
+
+# Function to handle errors
+handle_error() {
+    local error_message="$1"
+    echo "ERROR: $error_message"
+    exit 1
+}
+
+# Function to install Git based on the OS
+install_git() {
+    local os=$1
+    echo "Installing Git for $os..."
+    
+    if [[ "$os" == "linux" ]]; then
+        # Detect Linux distribution
+        if [ -f /etc/debian_version ]; then
+            # Debian/Ubuntu
+            echo "Detected Debian/Ubuntu-based system."
+            sudo apt-get update || handle_error "Failed to update package list"
+            sudo apt-get install -y git || handle_error "Failed to install Git"
+        elif [ -f /etc/fedora-release ]; then
+            # Fedora
+            echo "Detected Fedora-based system."
+            sudo dnf install -y git || handle_error "Failed to install Git"
+        elif [ -f /etc/redhat-release ]; then
+            # RHEL/CentOS
+            echo "Detected RHEL/CentOS-based system."
+            sudo yum install -y git || handle_error "Failed to install Git"
+        else
+            echo "Unsupported Linux distribution. Please install Git manually."
+            echo "You can typically use your package manager, e.g.:"
+            echo "sudo [apt/yum/dnf/pacman] install git"
+            exit 1
+        fi
+    elif [[ "$os" == "macos" ]]; then
+        # Check if Homebrew is installed
+        if command -v brew &>/dev/null; then
+            echo "Homebrew is installed, using it to install Git."
+            brew install git || handle_error "Failed to install Git with Homebrew"
+        else
+            # Ask user if they want to install Homebrew
+            read -p "Homebrew is not installed. Would you like to install it? (y/n): " install_brew
+            if [[ "$install_brew" == "y" ]]; then
+                echo "Installing Homebrew..."
+                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || handle_error "Failed to install Homebrew"
+                echo "Installing Git using Homebrew..."
+                brew install git || handle_error "Failed to install Git with Homebrew"
+            else
+                echo "Please install Git manually by downloading from https://git-scm.com/download/mac"
+                exit 1
+            fi
+        fi
+    elif [[ "$os" == "windows" ]]; then
+        # Check if running in Git Bash, MSYS, or Cygwin
+        if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+            echo "Running in Git Bash/MSYS/Cygwin. Git should already be available."
+            # Check if git command is available
+            if ! command -v git &>/dev/null; then
+                echo "Git is not installed or not in PATH."
+                echo "Please download and install Git from https://git-scm.com/download/win"
+                exit 1
+            fi
+        else
+            # Try to use Chocolatey if available
+            if command -v choco &>/dev/null; then
+                echo "Chocolatey is installed, using it to install Git."
+                choco install git -y || handle_error "Failed to install Git with Chocolatey"
+            else
+                echo "To install Git on Windows, you can:"
+                echo "1. Download and install from https://git-scm.com/download/win"
+                echo "2. Install Chocolatey (https://chocolatey.org/install) and then run 'choco install git -y'"
+                exit 1
+            fi
+        fi
+    else
+        echo "Unsupported operating system. Please install Git manually."
+        exit 1
+    fi
+    
+    # Verify Git installation
+    if command -v git &>/dev/null; then
+        echo "Git has been installed successfully! Version: $(git --version)"
+    else
+        handle_error "Git installation failed. Please install Git manually."
+    fi
+}
+
+# Function to configure Git with user input
+configure_git() {
+    echo -e "\nLet's configure Git with your information."
+    
+    # Get user name
+    read -p "Enter your name (as it should appear in commits): " user_name
+    while [[ -z "$user_name" ]]; do
+        read -p "Name cannot be empty. Please enter your name: " user_name
+    done
+    
+    # Get user email
+    read -p "Enter your email (associated with your GitHub account): " user_email
+    while [[ -z "$user_email" ]]; do
+        read -p "Email cannot be empty. Please enter your email: " user_email
+    done
+    
+    # Configure Git globally
+    git config --global user.name "$user_name" || handle_error "Failed to set git user.name"
+    git config --global user.email "$user_email" || handle_error "Failed to set git user.email"
+    
+    # Additional Git configurations
+    echo -e "\nConfiguring additional Git settings..."
+    
+    # Set default branch name to main
+    read -p "Would you like to set the default branch name to 'main'? (y/n): " set_main
+    if [[ "$set_main" == "y" ]]; then
+        git config --global init.defaultBranch main || handle_error "Failed to set default branch"
+    fi
+    
+    # Configure default editor
+    read -p "Would you like to set your preferred text editor for Git? (y/n): " set_editor
+    if [[ "$set_editor" == "y" ]]; then
+        read -p "Enter your preferred editor (e.g., vim, nano, code): " editor
+        git config --global core.editor "$editor" || handle_error "Failed to set editor"
+    fi
+    
+    # Configure credential helper for easier authentication
+    if [[ "$(detect_os)" == "windows" ]]; then
+        git config --global credential.helper wincred || echo "Warning: Failed to set credential helper"
+    elif [[ "$(detect_os)" == "macos" ]]; then
+        git config --global credential.helper osxkeychain || echo "Warning: Failed to set credential helper"
+    else
+        # For Linux, we'll use the cache helper
+        git config --global credential.helper cache || echo "Warning: Failed to set credential helper"
+        git config --global credential.helper 'cache --timeout=3600' || echo "Warning: Failed to set credential helper timeout"
+    fi
+    
+    echo -e "\nGit has been configured with the following settings:"
+    echo "Name: $user_name"
+    echo "Email: $user_email"
+    
+    # Verify configuration
+    echo -e "\nVerifying Git configuration..."
+    git config --list | grep user
+}
+# Function to set up SSH key for GitHub
+setup_ssh() {
+    echo -e "\nSetting up SSH key for GitHub..."
+    
+    # Define default SSH key path
+    default_key_path="$HOME/.ssh/id_rsa"
+    
+    # Check if custom key location is desired
+    read -p "Would you like to use a custom location/name for your SSH key? (y/n): " custom_key
+    if [[ "$custom_key" == "y" ]]; then
+        read -p "Enter the path for your SSH key (e.g., ~/.ssh/github_key): " key_path
+        if [[ -z "$key_path" ]]; then
+            key_path="$default_key_path"
+        fi
+    else
+        key_path="$default_key_path"
+    fi
+    
+    # Extract the directory and ensure it exists
+    key_dir=$(dirname "$key_path")
+    mkdir -p "$key_dir"
+    chmod 700 "$key_dir"
+    
+    # Check if key already exists
+    if [ -f "${key_path}.pub" ]; then
+        echo "SSH key already exists at ${key_path}.pub"
+        read -p "Do you want to create a new key anyway? (y/n): " create_new
+        if [[ "$create_new" != "y" ]]; then
+            echo -e "\nYour existing SSH public key:"
+            cat "${key_path}.pub"
+            echo -e "\nCopy the above key and add it to your GitHub account at: https://github.com/settings/keys"
+            return
+        fi
+    fi
+    
+    # Get email for SSH key
+    read -p "Enter the email to associate with your SSH key (press Enter to use Git email): " ssh_email
+    if [[ -z "$ssh_email" ]]; then
+        ssh_email=$(git config --global user.email)
+    fi
+    
+    # Generate SSH key
+    ssh-keygen -t rsa -b 4096 -C "$ssh_email" -f "$key_path" || handle_error "Failed to generate SSH key"
+    
+    # Start SSH agent
+    eval "$(ssh-agent -s)" || echo "Warning: Failed to start SSH agent"
+    
+    # Add SSH key to agent
+    ssh-add "$key_path" || echo "Warning: Failed to add SSH key to agent"
+    
+    # Display public key
+    echo -e "\nYour SSH public key:"
+    cat "${key_path}.pub"
+    
+    echo -e "\nCopy the above key and add it to your GitHub account at: https://github.com/settings/keys"
+}
+# Main script execution
+echo "======================================================="
+echo "    Git Installation and Configuration Script"
+echo "======================================================="
+echo "This script will help you install Git and configure it to work with GitHub."
+echo
+
+# Check if Git is already installed
+if command -v git &>/dev/null; then
+    echo "Git is already installed. Version: $(git --version)"
+    read -p "Do you want to proceed with configuration? (y/n): " continue_config
+    if [[ "$continue_config" != "y" ]]; then
+        exit 0
+    fi
+else
+    # Detect OS and install Git
+    os=$(detect_os)
+    if [[ "$os" == "unknown" ]]; then
+        echo "Your operating system could not be detected. Please install Git manually."
+        exit 1
+    fi
+    
+    install_git "$os"
+fi
+
+# Configure Git
+configure_git
+
+# Ask if user wants to set up SSH for GitHub
+read -p "Would you like to set up an SSH key for GitHub authentication? (y/n): " setup_ssh_key
+if [[ "$setup_ssh_key" == "y" ]]; then
+    setup_ssh
+fi
+
+# Test GitHub connectivity
+read -p "Would you like to test your GitHub connectivity? (y/n): " test_github_conn
+if [[ "$test_github_conn" == "y" ]]; then
+    ssh -T git@github.com
+    echo "Testing HTTPS connection to GitHub..."
+    git ls-remote https://github.com/octocat/Spoon-Knife.git > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        echo "HTTPS connection to GitHub is working."
+    else
+        echo "HTTPS connection to GitHub failed. This might be due to network issues."
+    fi
+fi
+
+echo -e "\n======================================================="
+echo "Git has been successfully installed and configured."
+echo "You are now ready to access and update your GitHub repositories!"
+echo "======================================================="
